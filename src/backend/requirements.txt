@@ -1,0 +1,14 @@
+# SBM Monitor — Backend Dependencies
+# Install: pip install -r requirements.txt
+
+# Web framework & WebSocket server
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.0
+websockets==12.0
+
+# ST-Link / SWD interface (communicates with STM32 via ST-Link USB)
+pyocd==0.36.0
+
+# USB device enumeration (opsional — pyocd sudah include ini)
+pyusb==1.2.1
