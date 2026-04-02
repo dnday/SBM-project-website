@@ -16,6 +16,7 @@ Koneksi frontend (ws://localhost:8765/ws)
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import threading
@@ -25,7 +26,7 @@ from typing import List, Optional
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -50,6 +51,10 @@ TIM1_CCR1 = 0x40010034  # Capture/Compare 1 (pulse)
 # RCC (for clock verification)
 RCC_CFGR  = 0x40023808  # Clock config register
 
+# Variabel RAM firmware (fallback sinyal chart saat ADC register tetap 0)
+LED_STATUS_ADDR = 0x20000078  # uint8_t led_status[8]
+LED_STATUS_COUNT = 8
+
 # ── Shared State ─────────────────────────────────────────────────────────────
 _state: dict = {
     "connected": False,
@@ -57,6 +62,8 @@ _state: dict = {
     "psc":       15999,
     "period":    499,
     "pulse":     250,
+    "signal":    0,
+    "leds":      [0] * LED_STATUS_COUNT,
     "uptime":    0,
     "error":     None,
     "probe_name": None,
@@ -135,7 +142,8 @@ def _probe_loop():
             try:
                 from pyocd.core.helpers import ConnectHelper
                 _session = ConnectHelper.session_with_chosen_probe(
-                    target_override="stm32f401cc",
+                    target_override="cortex_m",
+                    # Gunakan target generik agar attach tetap berjalan meski pack STM32F401 tidak tersedia.
                     connect_mode="attach",   # attach tanpa halt — MCU tetap berjalan
                     auto_unlock=False,
                     options={"hide_programming_progress": True},
@@ -169,12 +177,40 @@ def _probe_loop():
             arr_val  = target.read32(TIM1_ARR) & 0xFFFF
             ccr1_val = target.read32(TIM1_CCR1)& 0xFFFF
 
+            # Fallback: baca variabel led_status[8] di RAM firmware.
+            try:
+                led_lo = target.read32(LED_STATUS_ADDR)
+                led_hi = target.read32(LED_STATUS_ADDR + 4)
+                led_raw = [((led_lo >> (8 * i)) & 0xFF) for i in range(4)] + [((led_hi >> (8 * i)) & 0xFF) for i in range(4)]
+                leds = [1 if b else 0 for b in led_raw]
+            except Exception:
+                with _lock:
+                    leds = list(_state.get("leds", [0] * LED_STATUS_COUNT))
+
+            # Jika ketiga register PWM = 0, pakai nilai terakhir agar UI tetap stabil.
+            if psc_val == 0 and arr_val == 0 and ccr1_val == 0:
+                with _lock:
+                    psc_clean = int(_state.get("psc", 15999))
+                    arr_clean = int(_state.get("period", 499))
+                    ccr1_clean = int(_state.get("pulse", 250))
+            else:
+                psc_clean = int(psc_val)
+                arr_clean = int(arr_val)
+                ccr1_clean = int(ccr1_val)
+
+            # Sinyal chart: ADC utama; fallback ke agregat led_status bila ADC tetap 0.
+            signal = int(adc_raw)
+            if signal == 0 and any(leds):
+                signal = int(sum(leds) * (4095 / LED_STATUS_COUNT))
+
             _update(
                 connected=True,
                 adc=int(adc_raw),
-                psc=int(psc_val),
-                period=int(arr_val),
-                pulse=int(ccr1_val),
+                psc=psc_clean,
+                period=arr_clean,
+                pulse=ccr1_clean,
+                signal=signal,
+                leds=leds,
                 error=None,
             )
 
@@ -190,8 +226,16 @@ def _probe_loop():
         time.sleep(0.25)  # polling ~4 Hz
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    t = threading.Thread(target=_probe_loop, daemon=True)
+    t.start()
+    log.info("SBM Backend siap — WebSocket: ws://localhost:8765/ws")
+    yield
+
+
 # ── FastAPI App ──────────────────────────────────────────────────────────────
-app = FastAPI(title="SBM Monitor Backend", version="1.0.0")
+app = FastAPI(title="SBM Monitor Backend", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -200,13 +244,6 @@ app.add_middleware(
 )
 
 _ws_clients: List[WebSocket] = []
-
-
-@app.on_event("startup")
-async def _startup():
-    t = threading.Thread(target=_probe_loop, daemon=True)
-    t.start()
-    log.info("SBM Backend siap — WebSocket: ws://localhost:8765/ws")
 
 
 # ── WebSocket: push data ke browser setiap 300 ms ───────────────────────────
@@ -230,7 +267,9 @@ async def ws_endpoint(ws: WebSocket):
 
 # ── REST: tulis register PWM dari slider ────────────────────────────────────
 class WriteCmd(BaseModel):
-    register: str   # "pulse" | "period"
+    model_config = ConfigDict(populate_by_name=True)
+
+    reg_name: str = Field(alias="register")   # "pulse" | "period"
     value:    int
 
 
@@ -246,14 +285,14 @@ def write_register(cmd: WriteCmd):
 
     try:
         target = _session.target
-        if cmd.register == "pulse":
+        if cmd.reg_name == "pulse":
             # Klem pulse ≤ period agar duty ≤ 100%
             period = _state["period"]
             val = max(0, min(cmd.value, period))
             target.write32(TIM1_CCR1, val)
             _update(pulse=val)
             log.info(f"TIM1_CCR1 ← {val}")
-        elif cmd.register == "period":
+        elif cmd.reg_name == "period":
             val = max(99, min(cmd.value, 0xFFFF))
             target.write32(TIM1_ARR, val)
             # Juga klem pulse jika perlu

@@ -23,8 +23,7 @@ if (-not (Test-Path ".venv")) {
 Write-Host "  ● Menginstall dependencies..."
 pip install -q -r requirements.txt
 
-Write-Host "  ● Mengecek target pack STM32F4..."
-try { pyocd pack install stm32f401cc 2>$null } catch {}
+Write-Host "  ● Menggunakan target generik Cortex-M untuk pyOCD..."
 
 Write-Host ""
 Write-Host "  ✔ Backend berjalan di ws://localhost:8765/ws"

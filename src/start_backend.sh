@@ -33,14 +33,7 @@ source .venv/bin/activate
 echo "  ● Menginstall dependencies…"
 pip install -q -r requirements.txt
 
-# pyocd: download target pack STM32F4 jika belum ada
-echo "  ● Mengecek target pack STM32F4…"
-python3 -c "
-from pyocd.core.target import Target
-" 2>/dev/null || true
-
-pyocd pack --silent install stm32f401cc 2>/dev/null || \
-  echo "  ⚠ Target pack mungkin sudah ada atau perlu install manual: pyocd pack install stm32f401cc"
+echo "  ● Menggunakan target generik Cortex-M untuk pyOCD…"
 
 echo ""
 echo "  ✔ Backend berjalan di ws://localhost:8765/ws"
