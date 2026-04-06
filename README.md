@@ -51,7 +51,7 @@ cd .\src\backend
 python server.py
 ```
 
->  **Catatan penting:** backend harus aktif secara manual di mesin lokal (atau server dengan ST-Link fisik) setiap kali reboot/boot. Vercel tidak bisa menjalankan backend pyocd/ST-Link.
+> **Catatan penting:** backend harus aktif secara manual di mesin lokal (atau server dengan ST-Link fisik) setiap kali reboot/boot. Vercel tidak bisa menjalankan backend pyocd/ST-Link.
 
 ## 3. Menjalankan frontend
 
@@ -62,6 +62,31 @@ npm run dev
 ```
 
 Buka `http://localhost:5173`.
+
+### Mode koneksi yang dipakai frontend
+
+Default sekarang adalah **direct ke backend pyOCD** (tanpa CubeMonitor/Node-RED):
+
+- WebSocket: `ws://localhost:8765/ws`
+- REST write: `http://localhost:8765/write`
+
+Jika ingin mengaktifkan fallback legacy ke Node-RED/CubeMonitor, buat file `.env` dari `.env.example` lalu set:
+
+```bash
+VITE_ENABLE_NODERED_FALLBACK=true
+```
+
+Jika mode direct sudah konek tapi LED/Mode/Chart tidak sesuai, biasanya alamat variabel RAM berubah setelah rebuild firmware.
+Sesuaikan environment backend sebelum menjalankan `server.py`:
+
+```powershell
+$env:LED_STATUS_ADDR="0x200000bc"
+$env:MODE_ADDR="0x200000b8"
+$env:VAR1_ADDR="0x200000c4"
+$env:ADC_VALUE_ADDR="0x200000cc"
+$env:EXTI_FLAG_ADDR="0x200000d0"
+python server.py
+```
 
 ## 4. Deploy
 
@@ -95,7 +120,6 @@ try:
 except TypeError:
     probes = DebugProbeAggregator.get_all_connected_probes()
 ```
-
 
 ## 6. Tips mode production backend
 

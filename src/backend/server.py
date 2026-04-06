@@ -19,6 +19,8 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import logging
+import os
+import struct
 import threading
 import time
 from typing import List, Optional
@@ -51,14 +53,26 @@ TIM1_CCR1 = 0x40010034  # Capture/Compare 1 (pulse)
 # RCC (for clock verification)
 RCC_CFGR  = 0x40023808  # Clock config register
 
-# Variabel RAM firmware (fallback sinyal chart saat ADC register tetap 0)
-LED_STATUS_ADDR = 0x20000078  # uint8_t led_status[8]
+# Variabel RAM firmware (default dari daftar symbol ELF pengguna)
+# Bisa dioverride via environment variable jika alamat berubah antar build.
+LED_STATUS_ADDR = int(os.getenv("LED_STATUS_ADDR", "0x200000bc"), 16)  # uint8_t led_status[8]
 LED_STATUS_COUNT = 8
+MODE_ADDR = int(os.getenv("MODE_ADDR", "0x200000b8"), 16)             # uint8_t mode
+VAR1_ADDR = int(os.getenv("VAR1_ADDR", "0x200000c4"), 16)             # float/int var1
+ADC_VALUE_ADDR = int(os.getenv("ADC_VALUE_ADDR", "0x200000cc"), 16)   # uint16_t adc_value
+EXTI_FLAG_ADDR = int(os.getenv("EXTI_FLAG_ADDR", "0x200000d0"), 16)   # ext interrupt flag
+VAR1_TYPE = os.getenv("VAR1_TYPE", "int").strip().lower()  # int | float | auto
+POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "0.08"))
+WS_PUSH_INTERVAL = float(os.getenv("WS_PUSH_INTERVAL", "0.08"))
 
 # ── Shared State ─────────────────────────────────────────────────────────────
 _state: dict = {
     "connected": False,
     "adc":       0,
+    "adc_value": 0,
+    "mode":      0,
+    "var1":      0,
+    "exti_flag": 0,
     "psc":       15999,
     "period":    499,
     "pulse":     250,
@@ -91,6 +105,11 @@ def _close_session(sess):
         sess.close()
     except Exception:
         pass
+
+
+def _u32_to_f32(v: int) -> float:
+    """Interpret unsigned 32-bit register value as IEEE754 float32."""
+    return struct.unpack("<f", struct.pack("<I", v & 0xFFFFFFFF))[0]
 
 
 # ── Probe Monitor (background thread) ────────────────────────────────────────
@@ -177,6 +196,25 @@ def _probe_loop():
             arr_val  = target.read32(TIM1_ARR) & 0xFFFF
             ccr1_val = target.read32(TIM1_CCR1)& 0xFFFF
 
+            # Read state variables from firmware RAM symbols.
+            mode_raw = target.read32(MODE_ADDR) & 0xFF
+            var1_u32 = target.read32(VAR1_ADDR) & 0xFFFFFFFF
+            adc_ram = target.read32(ADC_VALUE_ADDR) & 0x0FFF
+            exti_flag = target.read32(EXTI_FLAG_ADDR) & 0x1
+
+            # Decode var1 sesuai tipe firmware.
+            if VAR1_TYPE == "float":
+                var1_val = float(_u32_to_f32(var1_u32))
+            elif VAR1_TYPE == "auto":
+                f = float(_u32_to_f32(var1_u32))
+                if abs(f) > 1e-6 and abs(f) < 1_000_000.0:
+                    var1_val = f
+                else:
+                    var1_val = float(struct.unpack("<i", struct.pack("<I", var1_u32))[0])
+            else:
+                # Default: firmware pengguna mengirim var1 sebagai int.
+                var1_val = float(struct.unpack("<i", struct.pack("<I", var1_u32))[0])
+
             # Fallback: baca variabel led_status[8] di RAM firmware.
             try:
                 led_lo = target.read32(LED_STATUS_ADDR)
@@ -198,14 +236,26 @@ def _probe_loop():
                 arr_clean = int(arr_val)
                 ccr1_clean = int(ccr1_val)
 
-            # Sinyal chart: ADC utama; fallback ke agregat led_status bila ADC tetap 0.
-            signal = int(adc_raw)
+            # Untuk mode potensio (2/3) prioritaskan variabel RAM firmware.
+            if int(mode_raw) in (2, 3):
+                adc_effective = int(adc_ram) if int(adc_ram) >= 0 else int(adc_raw)
+            else:
+                adc_effective = int(adc_raw) if int(adc_raw) > 0 else int(adc_ram)
+
+            # Sinyal chart: ADC utama; fallback ke var1, lalu ke agregat LED.
+            signal = int(adc_effective)
+            if signal == 0 and abs(var1_val) > 0:
+                signal = int(max(0, min(4095, round(var1_val))))
             if signal == 0 and any(leds):
                 signal = int(sum(leds) * (4095 / LED_STATUS_COUNT))
 
             _update(
                 connected=True,
-                adc=int(adc_raw),
+                adc=adc_effective,
+                adc_value=adc_effective,
+                mode=int(mode_raw),
+                var1=float(var1_val),
+                exti_flag=int(exti_flag),
                 psc=psc_clean,
                 period=arr_clean,
                 pulse=ccr1_clean,
@@ -223,7 +273,7 @@ def _probe_loop():
             time.sleep(2)
             continue
 
-        time.sleep(0.25)  # polling ~4 Hz
+        time.sleep(POLL_INTERVAL)
 
 
 @asynccontextmanager
@@ -246,7 +296,7 @@ app.add_middleware(
 _ws_clients: List[WebSocket] = []
 
 
-# ── WebSocket: push data ke browser setiap 300 ms ───────────────────────────
+# ── WebSocket: push data ke browser dengan interval cepat ───────────────────
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -256,7 +306,7 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             payload = _snap()
             await ws.send_text(json.dumps(payload))
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(WS_PUSH_INTERVAL)
     except (WebSocketDisconnect, Exception):
         pass
     finally:

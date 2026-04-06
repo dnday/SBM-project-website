@@ -155,24 +155,27 @@ input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.3); }
    CONFIG
 ══════════════════════════════════════════════════════════════ */
 const WS_ENV_URL = import.meta.env.VITE_WS_URL;
-const WS_FALLBACKS = ["ws://localhost:1880/ws/stm32", "ws://localhost:8765/ws"];
+const WS_DIRECT_URL =
+  import.meta.env.VITE_WS_DIRECT_URL || "ws://localhost:8765/ws";
+const ENABLE_NODERED_FALLBACK =
+  String(
+    import.meta.env.VITE_ENABLE_NODERED_FALLBACK || "false",
+  ).toLowerCase() === "true";
+const WS_NODERED_URL =
+  import.meta.env.VITE_WS_NODERED_URL || "ws://localhost:1880/ws/stm32";
+const WS_FALLBACKS = ENABLE_NODERED_FALLBACK
+  ? [WS_DIRECT_URL, WS_NODERED_URL]
+  : [WS_DIRECT_URL];
 const WS_URLS = [WS_ENV_URL, ...WS_FALLBACKS].filter(
   (v, i, arr) => typeof v === "string" && v.length > 0 && arr.indexOf(v) === i,
 );
-const API_URL = "http://localhost:8765";
-const HIST_LEN = 60;
+const HIST_LEN = 120;
 
 /* ══════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════ */
 function adcToVolt(v) {
   return ((v / 4095) * 3.3).toFixed(3);
-}
-function calcFreq(psc, per) {
-  return (16_000_000 / ((psc + 1) * (per + 1))).toFixed(2);
-}
-function calcDuty(pulse, period) {
-  return ((pulse / (period + 1)) * 100).toFixed(1);
 }
 function fmtUptime(s) {
   return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
@@ -232,107 +235,12 @@ function extractNodeRedMessage(input) {
 /* ══════════════════════════════════════════════════════════════
    DASHBOARD COMPONENTS
 ══════════════════════════════════════════════════════════════ */
-function PWMWave({ duty, freq }) {
-  const cycles = 3,
-    W = 400,
-    H = 78,
-    pad = 10;
-  const cw = (W - pad * 2) / cycles;
-  const onW = (duty / 100) * cw;
-  const hi = 18,
-    lo = 60;
-  let d = `M ${pad} ${lo}`;
-  for (let i = 0; i < cycles; i++) {
-    const x0 = pad + i * cw;
-    d += ` L ${x0} ${hi} L ${x0 + onW} ${hi} L ${x0 + onW} ${lo} L ${x0 + cw} ${lo}`;
-  }
-  const fills = Array.from({ length: cycles }, (_, i) => {
-    const x0 = pad + i * cw;
-    return (
-      <rect
-        key={i}
-        x={x0}
-        y={hi}
-        width={onW}
-        height={lo - hi}
-        fill="url(#wg)"
-      />
-    );
-  });
-  return (
-    <svg
-      width="100%"
-      height={H}
-      viewBox={`0 0 ${W} ${H}`}
-      style={{ display: "block" }}
-    >
-      <defs>
-        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#22c55e" stopOpacity=".25" />
-          <stop offset="100%" stopColor="#22c55e" stopOpacity=".02" />
-        </linearGradient>
-      </defs>
-      <line
-        x1={pad}
-        y1={hi}
-        x2={W - pad}
-        y2={hi}
-        stroke="#0f1a12"
-        strokeWidth="1"
-        strokeDasharray="3 4"
-      />
-      <line
-        x1={pad}
-        y1={lo}
-        x2={W - pad}
-        y2={lo}
-        stroke="#0f1a12"
-        strokeWidth="1"
-        strokeDasharray="3 4"
-      />
-      {fills}
-      <path
-        d={d}
-        fill="none"
-        stroke="#22c55e"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <text
-        x={pad + 3}
-        y={hi - 3}
-        fontSize="9"
-        fill="#3a5443"
-        fontFamily="JetBrains Mono,monospace"
-      >
-        HIGH
-      </text>
-      <text
-        x={pad + 3}
-        y={lo + 10}
-        fontSize="9"
-        fill="#3a5443"
-        fontFamily="JetBrains Mono,monospace"
-      >
-        LOW
-      </text>
-      <text
-        x={W - pad - 2}
-        y={H - 1}
-        fontSize="9"
-        fill="#2d4035"
-        fontFamily="JetBrains Mono,monospace"
-        textAnchor="end"
-      >
-        {freq} Hz
-      </text>
-    </svg>
-  );
-}
-
 function RingGauge({ value, max = 100, color = "#22c55e", size = 120 }) {
   const circ = 2 * Math.PI * 44;
-  const offset = circ * (1 - Math.min(value, max) / max);
+  const clamped = Math.max(0, Math.min(value, max));
+  const progress = max > 0 ? clamped / max : 0;
+  const activeLen = circ * progress;
+  const gapLen = circ - activeLen;
   return (
     <svg width={size} height={size} viewBox="0 0 120 120">
       <circle
@@ -351,11 +259,11 @@ function RingGauge({ value, max = 100, color = "#22c55e", size = 120 }) {
         stroke={color}
         strokeWidth="7"
         strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
+        strokeDasharray={`${activeLen} ${gapLen}`}
+        strokeDashoffset={0}
         transform="rotate(-90 60 60)"
         style={{
-          transition: "stroke-dashoffset .4s cubic-bezier(.4,0,.2,1)",
+          transition: "stroke-dasharray .35s cubic-bezier(.4,0,.2,1)",
           filter: `drop-shadow(0 0 6px ${color}55)`,
         }}
       />
@@ -371,6 +279,7 @@ function TimeSeriesChart({
   yMax = 100,
   unit = "",
   xLabel = "Time (s)",
+  prominent = false,
 }) {
   const width = 520;
   const height = 190;
@@ -396,9 +305,26 @@ function TimeSeriesChart({
     return `${x},${y}`;
   };
 
-  const polyline = safeData
-    .map((p, idx) => point(idx, Number(p.v) || 0))
-    .join(" ");
+  const points = safeData.map((p, idx) => {
+    const x = padL + (idx / (safeData.length - 1)) * drawW;
+    const y = padT + drawH - (((Number(p.v) || 0) - minV) / range) * drawH;
+    return { x, y };
+  });
+
+  const smoothPath = (() => {
+    if (points.length < 2) return "";
+    if (points.length === 2)
+      return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length - 1; i++) {
+      const midX = (points[i].x + points[i + 1].x) / 2;
+      const midY = (points[i].y + points[i + 1].y) / 2;
+      d += ` Q ${points[i].x} ${points[i].y} ${midX} ${midY}`;
+    }
+    const last = points[points.length - 1];
+    d += ` T ${last.x} ${last.y}`;
+    return d;
+  })();
 
   const startT = safeData[0]?.t ?? 0;
   const midT = safeData[Math.floor((safeData.length - 1) / 2)]?.t ?? 0;
@@ -409,7 +335,7 @@ function TimeSeriesChart({
   };
 
   return (
-    <div className="trend-card">
+    <div className={`trend-card${prominent ? " primary" : ""}`}>
       <div className="label" style={{ marginBottom: 8 }}>
         <div className="label-dot" />
         {title}
@@ -445,13 +371,14 @@ function TimeSeriesChart({
           stroke="#2a3a2f"
           strokeWidth="1"
         />
-        <polyline
-          points={polyline}
+        <path
+          d={smoothPath}
           fill="none"
           stroke={color}
           strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
         />
         <text
           x={4}
@@ -560,18 +487,16 @@ function Dashboard({ onGoToDocs }) {
   const [leds, setLeds] = useState(Array(8).fill(0));
   const [adc, setAdc] = useState(0);
   const [signal, setSignal] = useState(0);
-  const [psc, setPsc] = useState(15999);
-  const [period, setPeriod] = useState(499);
-  const [pulse, setPulse] = useState(250);
+  const [extiFlag, setExtiFlag] = useState(0);
   const [uptime, setUptime] = useState(0);
   const [error, setError] = useState(null);
   const [hist, setHist] = useState(DEFAULT_HIST);
   const [varHist, setVarHist] = useState(DEFAULT_HIST);
   const [ledHist, setLedHist] = useState(DEFAULT_HIST);
   const [adcStats, setAdcStats] = useState({ min: 0, max: 0, sum: 0 });
-  const [writing, setWriting] = useState(false); // feedback saat slider menulis ke STM32
 
   const tick = useRef(HIST_LEN);
+  const timeBaseRef = useRef(null);
   const wsRef = useRef(null);
   const reconnect = useRef(null);
   const wsUrlIndexRef = useRef(0);
@@ -579,6 +504,8 @@ function Dashboard({ onGoToDocs }) {
     mode: 0,
     var1: 0,
     adc_value: 0,
+    signal: 0,
+    exti_flag: 0,
     leds: Array(8).fill(0),
   });
   const nodeRedStartedAt = useRef(Date.now());
@@ -606,9 +533,17 @@ function Dashboard({ onGoToDocs }) {
           setError(null);
           let varUpdated = false;
           let ledUpdated = false;
-          const sampleT = Number.isFinite(Number(nodeRedMsg.time_s))
-            ? Number(nodeRedMsg.time_s)
-            : tick.current++;
+          let sampleT = tick.current++;
+          const parsedTime = Number(nodeRedMsg.time_s);
+          if (Number.isFinite(parsedTime)) {
+            if (
+              timeBaseRef.current === null ||
+              parsedTime < timeBaseRef.current
+            ) {
+              timeBaseRef.current = parsedTime;
+            }
+            sampleT = Number((parsedTime - timeBaseRef.current).toFixed(3));
+          }
 
           if (nodeRedMsg.kind === "single") {
             const { variablename, value } = nodeRedMsg;
@@ -616,16 +551,15 @@ function Dashboard({ onGoToDocs }) {
             if (varName === "mode") {
               nodeRedState.current.mode = Math.max(
                 0,
-                Math.min(2, Math.round(value)),
+                Math.min(3, Math.round(value)),
               );
             } else if (varName === "var1") {
               nodeRedState.current.var1 = value;
               varUpdated = true;
             } else if (varName === "adc_value" || varName === "adc") {
-              nodeRedState.current.adc_value = Math.max(
-                0,
-                Math.min(4095, Math.round(value)),
-              );
+              const adcValue = Math.max(0, Math.min(4095, Math.round(value)));
+              nodeRedState.current.adc_value = adcValue;
+              nodeRedState.current.signal = adcValue;
             } else {
               if (varName === "led_status") {
                 const bits = Number.isFinite(value) ? Math.trunc(value) : 0;
@@ -635,9 +569,9 @@ function Dashboard({ onGoToDocs }) {
                 );
                 ledUpdated = true;
               }
-              const m = varName.match(/led[_\s-]*status\[(\d+)\]/);
+              const m = varName.match(/led[_\s-]*status(?:\[(\d+)\]|(\d+))/);
               if (m) {
-                const idx = Number(m[1]);
+                const idx = Number(m[1] ?? m[2]);
                 if (idx >= 0 && idx < 8) {
                   nodeRedState.current.leds[idx] = value ? 1 : 0;
                   ledUpdated = true;
@@ -649,31 +583,48 @@ function Dashboard({ onGoToDocs }) {
             if (Number.isFinite(Number(s.mode))) {
               nodeRedState.current.mode = Math.max(
                 0,
-                Math.min(2, Math.round(Number(s.mode))),
+                Math.min(3, Math.round(Number(s.mode))),
               );
+            }
+            if (Number.isFinite(Number(s.exti_flag))) {
+              nodeRedState.current.exti_flag = Number(s.exti_flag) ? 1 : 0;
             }
             if (Number.isFinite(Number(s.var1))) {
               nodeRedState.current.var1 = Number(s.var1);
               varUpdated = true;
             }
             if (Number.isFinite(Number(s.adc_value))) {
-              nodeRedState.current.adc_value = Math.max(
+              const adcValue = Math.max(
                 0,
                 Math.min(4095, Math.round(Number(s.adc_value))),
               );
+              nodeRedState.current.adc_value = adcValue;
             }
             if (Number.isFinite(Number(s.adc))) {
-              nodeRedState.current.adc_value = Math.max(
+              const adcValue = Math.max(
                 0,
                 Math.min(4095, Math.round(Number(s.adc))),
               );
+              nodeRedState.current.adc_value = adcValue;
+            }
+            if (Number.isFinite(Number(s.signal))) {
+              nodeRedState.current.signal = Math.max(
+                0,
+                Math.min(4095, Math.round(Number(s.signal))),
+              );
             }
             if (Array.isArray(s.leds)) {
-              nodeRedState.current.leds = s.leds
+              const normalized = s.leds.slice(0, 8).map((x) => (x ? 1 : 0));
+              while (normalized.length < 8) normalized.push(0);
+              nodeRedState.current.leds = normalized;
+              ledUpdated = true;
+            }
+            if (Array.isArray(s.led_status)) {
+              const normalized = s.led_status
                 .slice(0, 8)
                 .map((x) => (x ? 1 : 0));
-              while (nodeRedState.current.leds.length < 8)
-                nodeRedState.current.leds.push(0);
+              while (normalized.length < 8) normalized.push(0);
+              nodeRedState.current.leds = normalized;
               ledUpdated = true;
             }
             if (Number.isFinite(Number(s.led_status))) {
@@ -687,16 +638,20 @@ function Dashboard({ onGoToDocs }) {
 
           const nr = nodeRedState.current;
           const nrAdc = nr.adc_value;
+          const explicitSignal = Number(nr.signal);
           const nrSignal =
-            nrAdc > 0
-              ? nrAdc
-              : Math.max(0, Math.min(4095, Math.round(nr.var1)));
+            Number.isFinite(explicitSignal) && explicitSignal > 0
+              ? explicitSignal
+              : nrAdc > 0
+                ? nrAdc
+                : Math.max(0, Math.min(4095, Math.round(nr.var1)));
 
           setMode(nr.mode);
           setVar1(nr.var1);
           setLeds([...nr.leds]);
           setAdc(nrAdc);
           setSignal(nrSignal);
+          setExtiFlag(Number(nr.exti_flag) ? 1 : 0);
           setUptime(Math.floor((Date.now() - nodeRedStartedAt.current) / 1000));
           const ledOnCount = nr.leds.reduce((acc, v) => acc + (v ? 1 : 0), 0);
 
@@ -738,6 +693,7 @@ function Dashboard({ onGoToDocs }) {
               : 0,
           );
           setSignal(v);
+          setExtiFlag(Number(d.exti_flag) ? 1 : 0);
           if (Array.isArray(d.leds)) {
             const normalized = d.leds.slice(0, 8).map((x) => (x ? 1 : 0));
             while (normalized.length < 8) normalized.push(0);
@@ -750,21 +706,9 @@ function Dashboard({ onGoToDocs }) {
               },
             ]);
           }
-          setPsc((prev) => {
-            const next = Number(d.psc);
-            return Number.isFinite(next) && next > 0 ? next : prev;
-          });
-          setPeriod((prev) => {
-            const next = Number(d.period);
-            return Number.isFinite(next) && next > 0 ? next : prev;
-          });
-          setPulse((prev) => {
-            const next = Number(d.pulse);
-            return Number.isFinite(next) && next >= 0 ? next : prev;
-          });
           setUptime(d.uptime ?? 0);
           if (Number.isFinite(Number(d.mode))) {
-            setMode(Math.max(0, Math.min(2, Math.round(Number(d.mode)))));
+            setMode(Math.max(0, Math.min(3, Math.round(Number(d.mode)))));
           }
           if (Number.isFinite(Number(d.var1))) {
             setVar1(Number(d.var1));
@@ -807,32 +751,59 @@ function Dashboard({ onGoToDocs }) {
     };
   }, [connect]);
 
-  /* ── Tulis register ke STM32 via REST ── */
-  const writeReg = async (register, value) => {
-    if (!connected) return;
-    setWriting(true);
-    try {
-      await fetch(`${API_URL}/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ register, value: +value }),
-      });
-    } catch (_) {
-    } finally {
-      setWriting(false);
-    }
-  };
-
   /* ── Computed ── */
-  const freq = calcFreq(psc, period);
-  const duty = parseFloat(calcDuty(pulse, period));
-  const dutyColor = duty > 75 ? "#f59e0b" : duty < 25 ? "#3b82f6" : "#22c55e";
   const volt = adcToVolt(adc);
   const signalPct = Math.round((signal / 4095) * 100);
-  const adcColor = adc > 3000 ? "#f59e0b" : adc < 900 ? "#3b82f6" : "#22c55e";
+  const gaugeAdc = mode === 3 ? 4095 - adc : adc;
+  const gaugeVolt = adcToVolt(gaugeAdc);
+  const gaugeSignalPct = Math.round((gaugeAdc / 4095) * 100);
+  const displayAdc = mode === 3 ? gaugeAdc : adc;
+  const displayVolt = mode === 3 ? gaugeVolt : volt;
+  const adcColor =
+    displayAdc > 3000 ? "#f59e0b" : displayAdc < 900 ? "#3b82f6" : "#22c55e";
   const ledOnCount = leds.reduce((acc, v) => acc + (v ? 1 : 0), 0);
+  const panelLeds = mode === 1 ? Array(8).fill(0) : leds;
+  const panelLedOnCount = panelLeds.reduce((acc, v) => acc + (v ? 1 : 0), 0);
+  const ledByte = leds.reduce(
+    (acc, bit, idx) => acc | ((bit ? 1 : 0) << idx),
+    0,
+  );
+  const ledBin = ledByte.toString(2).padStart(8, "0");
+  const ledHex = `0x${ledByte.toString(16).toUpperCase().padStart(2, "0")}`;
   const scanIdx =
-    ledOnCount === 0 ? ((Math.abs(Math.round(var1)) % 8) + 8) % 8 : -1;
+    mode === 1 || panelLedOnCount > 0
+      ? -1
+      : ((Math.abs(Math.round(var1)) % 8) + 8) % 8;
+  const modeLabel =
+    mode === 0
+      ? "Mode 0 - Shift Left"
+      : mode === 1
+        ? "Mode 1 - Sawtooth 0..2 lalu 0..52"
+        : mode === 2
+          ? "Mode 2 - Potensio Bar Graph"
+          : "Mode 3 - Potensio RGB";
+  const modeColor =
+    mode === 1
+      ? "#38bdf8"
+      : mode === 2
+        ? "#22c55e"
+        : mode === 3
+          ? "#f59e0b"
+          : "#e2ebe5";
+  const rgbAdc = 4095 - adc;
+  const rgbState = (() => {
+    if (rgbAdc < 500) return { name: "WHITE", r: 255, g: 255, b: 255 };
+    if (rgbAdc < 1000) return { name: "MAGENTA", r: 255, g: 80, b: 235 };
+    if (rgbAdc < 1500) return { name: "CYAN", r: 60, g: 235, b: 235 };
+    if (rgbAdc < 2000) return { name: "YELLOW", r: 255, g: 220, b: 60 };
+    if (rgbAdc < 2600) return { name: "BLUE", r: 70, g: 130, b: 255 };
+    if (rgbAdc < 3300) return { name: "GREEN", r: 40, g: 255, b: 110 };
+    return { name: "RED", r: 255, g: 40, b: 40 };
+  })();
+  const rgbActive = mode === 3;
+  const rgbColor = rgbActive
+    ? `rgb(${rgbState.r}, ${rgbState.g}, ${rgbState.b})`
+    : "#1a2320";
 
   /* ── Dashboard CSS ── */
   const css = `
@@ -850,7 +821,7 @@ function Dashboard({ onGoToDocs }) {
     .hdr-title { font-size:12px; font-weight:600; color:#e2ebe5; letter-spacing:.08em; text-transform:uppercase; }
     .hdr-sub { font-size:10px; color:var(--muted); margin-top:1px; }
     .hdr-right { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
-    .g3 { display:grid; grid-template-columns:1fr 1.6fr 1fr; gap:14px; margin-bottom:14px; }
+    .g3 { display:grid; grid-template-columns:1fr; gap:14px; margin-bottom:14px; }
     .g1 { margin-bottom:14px; }
     .g3b { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:14px; margin-bottom:28px; }
     .adc-num { font-family:var(--mono); font-size:36px; font-weight:300; color:#e8f3eb; line-height:1; letter-spacing:-.02em; margin-bottom:3px; }
@@ -865,20 +836,6 @@ function Dashboard({ onGoToDocs }) {
     .ms { background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:6px 8px; }
     .ms-k { font-size:8px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; margin-bottom:2px; }
     .ms-v { font-family:var(--mono); font-size:12px; color:var(--text2); }
-    .pwm-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:11px; }
-    .ps { background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:7px 9px; }
-    .ps-k { font-size:8px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; margin-bottom:2px; }
-    .ps-v { font-family:var(--mono); font-size:13px; color:#e2ebe5; }
-    .ps-u { font-size:9px; color:var(--muted); margin-left:2px; }
-    .duty-wrap { display:flex; flex-direction:column; align-items:center; }
-    .duty-big { font-family:var(--mono); font-size:32px; font-weight:300; line-height:1; margin-top:6px; }
-    .duty-big span { font-size:13px; }
-    .duty-sub { font-size:10px; color:var(--muted); margin-top:3px; margin-bottom:12px; }
-    .ctrl { display:flex; flex-direction:column; gap:11px; }
-    .ctrl-hd { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
-    .cn { font-size:9px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; }
-    .cv { font-family:var(--mono); font-size:11px; color:var(--green); }
-    .cv.writing { color:var(--amber); }
     .gauge-grid { display:grid; grid-template-columns:repeat(3,minmax(140px,1fr)); gap:10px; }
     .gauge-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 8px 8px; display:flex; flex-direction:column; align-items:center; }
     .gauge-title { font-size:8px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; margin-bottom:4px; }
@@ -891,8 +848,26 @@ function Dashboard({ onGoToDocs }) {
     .led-bulb.scan { background:#38bdf8; box-shadow:0 0 10px rgba(56,189,248,.55), 0 0 18px rgba(56,189,248,.25); animation:ledPulse .9s ease-in-out infinite; }
     .led-idx { font-family:var(--mono); font-size:8px; color:var(--dim); }
     @keyframes ledPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.18); } }
-    .trend-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+    .trend-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:14px; }
     .trend-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px; }
+    .signal-cluster { border:1px solid #172017; border-radius:12px; padding:12px; background:linear-gradient(140deg, rgba(8,13,10,.98), rgba(13,22,16,.95)); }
+    .signal-cluster-title { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#9ac5ad; margin-bottom:10px; }
+    .led-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; margin-bottom:10px; }
+    .led-meta-item { font-family:var(--mono); font-size:9px; color:var(--muted); background:#0b140e; border:1px solid var(--border); border-radius:5px; padding:5px 8px; letter-spacing:.06em; }
+    .led-meta-item b { color:var(--green); font-weight:500; }
+    .mode-note { margin-top:8px; margin-bottom:10px; font-family:var(--mono); font-size:10px; color:var(--muted); }
+    .mode-hero { margin-top:12px; margin-bottom:14px; border:1px solid rgba(34,197,94,.25); border-radius:12px; background:linear-gradient(135deg, rgba(34,197,94,.09) 0%, rgba(56,189,248,.08) 100%); padding:12px 14px; display:flex; align-items:flex-end; justify-content:space-between; gap:10px; }
+    .mode-hero-num { font-family:var(--mono); font-size:42px; line-height:1; color:#e7fff0; font-weight:700; letter-spacing:.02em; text-shadow:0 0 18px rgba(34,197,94,.25); }
+    .mode-hero-title { font-family:var(--mono); font-size:13px; color:var(--text); letter-spacing:.08em; text-transform:uppercase; }
+    .mode-hero-desc { font-size:12px; color:#a3c3b0; margin-top:2px; }
+    .exti-banner { margin-top:10px; border:1px solid rgba(239,68,68,.25); background:rgba(239,68,68,.08); color:#fca5a5; border-radius:8px; padding:8px 10px; font-family:var(--mono); font-size:10px; letter-spacing:.06em; }
+    .rgb-panel { margin-top:10px; margin-bottom:12px; border:1px solid #1a2a23; border-radius:10px; padding:10px 12px; background:linear-gradient(140deg, #0b120e, #0f1a13); }
+    .rgb-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#9ab6a4; }
+    .rgb-lamp-wrap { display:flex; align-items:center; gap:10px; }
+    .rgb-lamp { width:32px; height:32px; border-radius:50%; border:1px solid #2a3a2f; box-shadow:inset 0 0 6px rgba(0,0,0,.65); transition:all .2s ease; }
+    .rgb-lamp.active { box-shadow:0 0 18px currentColor, 0 0 30px color-mix(in srgb, currentColor 55%, transparent), inset 0 0 10px rgba(255,255,255,.3); }
+    .rgb-name { font-family:var(--mono); font-size:12px; color:#d4e5db; }
+    .rgb-sub { font-size:10px; color:var(--muted); margin-top:2px; }
     .si-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
     .si { background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:6px 8px; }
     .si-k { font-size:8px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; margin-bottom:2px; }
@@ -907,8 +882,9 @@ function Dashboard({ onGoToDocs }) {
     .irq-name { font-family:var(--mono); color:#6a9079; font-size:9px; }
     .docs-btn-wrap { display:flex; justify-content:center; padding: 8px 0 4px; }
     input[type=range]:disabled { opacity:.35; cursor:not-allowed; }
-    @media(max-width:860px){.g3{grid-template-columns:1fr 1fr}.g3b{grid-template-columns:1fr 1fr}.gauge-grid{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr}}
-    @media(max-width:580px){.g3,.g3b,.gauge-grid{grid-template-columns:1fr}}
+    @media(max-width:1200px){.trend-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:860px){.g3b{grid-template-columns:1fr 1fr}.gauge-grid{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr}}
+    @media(max-width:580px){.g3b,.gauge-grid{grid-template-columns:1fr}}
   `;
 
   /* ── Chip status ── */
@@ -980,6 +956,9 @@ function Dashboard({ onGoToDocs }) {
               LED ON <span>{ledOnCount}/8</span>
             </div>
             <div className="badge">
+              EXTI <span>{extiFlag ? "ACTIVE" : "IDLE"}</span>
+            </div>
+            <div className="badge">
               UPTIME <span>{fmtUptime(uptime)}</span>
             </div>
             <div className={`chip ${chipClass}`}>
@@ -996,6 +975,16 @@ function Dashboard({ onGoToDocs }) {
           </div>
         </header>
 
+        <div className="mode-hero">
+          <div>
+            <div className="mode-hero-title">Active Mode</div>
+            <div className="mode-hero-desc" style={{ color: modeColor }}>
+              {modeLabel}
+            </div>
+          </div>
+          <div className="mode-hero-num">{mode}</div>
+        </div>
+
         {/* Row 1 */}
         <div className="g3">
           {/* ADC */}
@@ -1005,7 +994,7 @@ function Dashboard({ onGoToDocs }) {
               ADC1 — Channel 0 · PA0
             </div>
             <div className="adc-num">
-              {adc.toString().padStart(4, "0")}
+              {displayAdc.toString().padStart(4, "0")}
               <span>/ 4095</span>
             </div>
             <div className="adc-sub">
@@ -1014,7 +1003,7 @@ function Dashboard({ onGoToDocs }) {
             <div className="bar-track">
               <div
                 className="bar-fill"
-                style={{ width: `${(adc / 4095) * 100}%` }}
+                style={{ width: `${(displayAdc / 4095) * 100}%` }}
               />
             </div>
             <div className="adc-range">
@@ -1023,7 +1012,7 @@ function Dashboard({ onGoToDocs }) {
               <span>4095</span>
             </div>
             <div className="volt">
-              {volt}
+              {displayVolt}
               <span>V</span>
             </div>
             <div className="mini-stats">
@@ -1043,174 +1032,80 @@ function Dashboard({ onGoToDocs }) {
               </div>
             </div>
           </div>
-
-          {/* PWM */}
-          <div className="card">
-            <div className="label" style={{ marginBottom: 10 }}>
-              <div className="label-dot" />
-              TIM1 — PWM · PA8
-            </div>
-            <PWMWave duty={duty} freq={freq} />
-            <div className="pwm-stats">
-              {[
-                ["Frequency", freq, "Hz"],
-                ["Prescaler", psc, ""],
-                ["Period", period, ""],
-                ["Pulse", pulse, ""],
-                ["Timer CLK", "1", "kHz"],
-                ["Channel", "CH1", ""],
-              ].map(([k, v, u]) => (
-                <div key={k} className="ps">
-                  <div className="ps-k">{k}</div>
-                  <div className="ps-v">
-                    {v}
-                    <span className="ps-u">{u}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Duty */}
-          <div className="card">
-            <div className="label" style={{ marginBottom: 10 }}>
-              <div className="label-dot" />
-              Duty Cycle
-            </div>
-            <div className="duty-wrap">
-              <RingGauge value={duty} color={dutyColor} size={118} />
-              <div className="duty-big" style={{ color: dutyColor }}>
-                {duty}
-                <span>%</span>
-              </div>
-              <div className="duty-sub">PWM on-time ratio</div>
-            </div>
-            {/* Slider: tulis langsung ke STM32 via REST */}
-            <div className="ctrl">
-              {[
-                {
-                  label: "Pulse width",
-                  val: `${pulse} / ${period + 1}`,
-                  min: 0,
-                  max: period,
-                  cur: pulse,
-                  set: (v) => {
-                    setPulse(+v);
-                    writeReg("pulse", +v);
-                  },
-                },
-                {
-                  label: "Period (ARR)",
-                  val: period,
-                  min: 99,
-                  max: 9999,
-                  cur: period,
-                  set: (v) => {
-                    setPeriod(+v);
-                    setPulse((p) => Math.min(p, +v));
-                    writeReg("period", +v);
-                  },
-                },
-              ].map((c) => (
-                <div key={c.label}>
-                  <div className="ctrl-hd">
-                    <span className="cn">{c.label}</span>
-                    <span className={`cv${writing ? " writing" : ""}`}>
-                      {c.val}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={c.min}
-                    max={c.max}
-                    value={c.cur}
-                    disabled={!connected}
-                    onChange={(e) => c.set(e.target.value)}
-                  />
-                </div>
-              ))}
-              {writing && (
-                <div
-                  style={{
-                    fontSize: 9,
-                    color: "var(--amber)",
-                    fontFamily: "var(--mono)",
-                    letterSpacing: ".08em",
-                  }}
-                >
-                  ↑ Menulis ke STM32…
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Gauges */}
         <div className="g1">
           <div className="card">
-            <div className="label" style={{ marginBottom: 10 }}>
-              <div className="label-dot" />
-              Realtime Gauge Panel
-            </div>
-            <div className="gauge-grid">
-              <div className="gauge-card">
-                <div className="gauge-title">ADC Raw</div>
-                <RingGauge value={adc} max={4095} color={adcColor} size={122} />
-                <div className="gauge-val" style={{ color: adcColor }}>
-                  {adc}
-                </div>
-                <div className="gauge-sub">0 - 4095</div>
-              </div>
-              <div className="gauge-card">
-                <div className="gauge-title">Voltage</div>
-                <RingGauge
-                  value={Number(volt)}
-                  max={3.3}
-                  color="#f59e0b"
-                  size={122}
-                />
-                <div className="gauge-val" style={{ color: "#f59e0b" }}>
-                  {volt} V
-                </div>
-                <div className="gauge-sub">ADC / 4095 x 3.3</div>
-              </div>
-              <div className="gauge-card">
-                <div className="gauge-title">Signal Activity</div>
-                <RingGauge
-                  value={signal}
-                  max={4095}
-                  color="#22c55e"
-                  size={122}
-                />
-                <div className="gauge-val" style={{ color: "#22c55e" }}>
-                  {signalPct}%
-                </div>
-                <div className="gauge-sub">Fallback-aware realtime</div>
-              </div>
-            </div>
-
             <div className="label" style={{ marginTop: 14, marginBottom: 8 }}>
               <div className="label-dot" />
               LED Sequence Activity
             </div>
             <div className="led-seq">
-              {Array.from({ length: 8 }, (_, i) => (
-                <div key={i} className="led-pill">
-                  <div
-                    className={`led-bulb ${leds[i] ? "on" : ""} ${!leds[i] && i === scanIdx ? "scan" : ""}`}
-                  />
-                  <div className="led-idx">LED{i}</div>
+              {Array.from({ length: 8 }, (_, i) => {
+                return (
+                  <div key={i} className="led-pill">
+                    <div
+                      className={`led-bulb ${panelLeds[i] ? "on" : ""} ${!panelLeds[i] && i === scanIdx ? "scan" : ""}`}
+                    />
+                    <div className="led-idx">LED{i}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mode-note">{modeLabel}</div>
+
+            <div className="rgb-panel">
+              <div className="rgb-head">
+                <span>Mode 3 RGB Light</span>
+                <span>{rgbActive ? "ACTIVE" : "STANDBY"}</span>
+              </div>
+              <div className="rgb-lamp-wrap">
+                <div
+                  className={`rgb-lamp ${rgbActive ? "active" : ""}`}
+                  style={{ background: rgbColor, color: rgbColor }}
+                />
+                <div>
+                  <div className="rgb-name">
+                    {rgbActive ? rgbState.name : "OFF"}
+                  </div>
+                  <div className="rgb-sub">ADC: {gaugeAdc} / 4095</div>
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <div className="led-meta">
+              <div className="led-meta-item">
+                ON: <b>{panelLedOnCount}/8</b>
+              </div>
+              <div className="led-meta-item">
+                BIN: <b>{ledBin}</b>
+              </div>
+              <div className="led-meta-item">
+                HEX: <b>{ledHex}</b>
+              </div>
             </div>
 
             <div className="trend-grid">
+              <div className="signal-cluster">
+                <div className="signal-cluster-title">Increment Monitor</div>
+                <TimeSeriesChart
+                  data={hist}
+                  title="CubeMonitor Signal Trend"
+                  color="#22c55e"
+                  yMin={0}
+                  yMax={4095}
+                  xLabel="Relative Time (s)"
+                />
+              </div>
               <TimeSeriesChart
                 data={varHist}
                 title="VAR1 / Count Trend"
                 color="#38bdf8"
                 yMin={0}
-                yMax={100}
+                yMax={52}
+                xLabel="Relative Time (s)"
               />
               <TimeSeriesChart
                 data={ledHist}
@@ -1218,7 +1113,59 @@ function Dashboard({ onGoToDocs }) {
                 color="#22c55e"
                 yMin={0}
                 yMax={8}
+                xLabel="Relative Time (s)"
               />
+            </div>
+            {extiFlag === 1 && (
+              <div className="exti-banner">
+                EXTI PB0 aktif: semua LED ON 5 detik, lalu restore.
+              </div>
+            )}
+
+            <div className="label" style={{ marginTop: 14, marginBottom: 10 }}>
+              <div className="label-dot" />
+              Realtime Gauge Panel
+            </div>
+            <div className="gauge-grid">
+              <div className="gauge-card">
+                <div className="gauge-title">ADC Raw</div>
+                <RingGauge
+                  value={gaugeAdc}
+                  max={4095}
+                  color={adcColor}
+                  size={122}
+                />
+                <div className="gauge-val" style={{ color: adcColor }}>
+                  {gaugeAdc}
+                </div>
+                <div className="gauge-sub">0 - 4095</div>
+              </div>
+              <div className="gauge-card">
+                <div className="gauge-title">Voltage</div>
+                <RingGauge
+                  value={Number(gaugeVolt)}
+                  max={3.3}
+                  color="#f59e0b"
+                  size={122}
+                />
+                <div className="gauge-val" style={{ color: "#f59e0b" }}>
+                  {gaugeVolt} V
+                </div>
+                <div className="gauge-sub">ADC / 4095 x 3.3</div>
+              </div>
+              <div className="gauge-card">
+                <div className="gauge-title">Signal Activity</div>
+                <RingGauge
+                  value={gaugeAdc}
+                  max={4095}
+                  color="#22c55e"
+                  size={122}
+                />
+                <div className="gauge-val" style={{ color: "#22c55e" }}>
+                  {gaugeSignalPct}%
+                </div>
+                <div className="gauge-sub">Fallback-aware realtime</div>
+              </div>
             </div>
           </div>
         </div>

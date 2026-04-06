@@ -34,15 +34,26 @@ if (name === "mode") {
   state.var1 = y;
 } else if (name === "adc_value") {
   state.adc_value = Math.max(0, Math.min(4095, Math.round(y)));
+} else if (name === "adc") {
+  state.adc_value = Math.max(0, Math.min(4095, Math.round(y)));
 } else {
-  const m = name.match(/^led_status\[(\d+)\]$/);
-  if (m) {
-    const idx = Number(m[1]);
-    if (idx >= 0 && idx < 8) {
-      state.leds[idx] = y ? 1 : 0;
-    }
+  if (name === "led_status") {
+    // Support packed LED bitfield in one variable.
+    const bits = Math.trunc(y);
+    state.leds = Array.from({ length: 8 }, (_, idx) =>
+      (bits >> idx) & 1 ? 1 : 0,
+    );
   } else {
-    return null;
+    // Support per-index variables: led_status[0], led_status1, etc.
+    const m = name.match(/^led_status(?:\[(\d+)\]|(\d+))$/);
+    if (m) {
+      const idx = Number(m[1] ?? m[2]);
+      if (idx >= 0 && idx < 8) {
+        state.leds[idx] = y ? 1 : 0;
+      }
+    } else {
+      return null;
+    }
   }
 }
 
@@ -54,6 +65,7 @@ msg.payload = {
   var1: state.var1,
   adc_value: state.adc_value,
   leds: state.leds.slice(),
+  signal: state.adc_value > 0 ? state.adc_value : Math.round(state.var1),
   ts: state.ts,
 };
 
