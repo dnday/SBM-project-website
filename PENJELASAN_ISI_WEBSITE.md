@@ -1,107 +1,127 @@
-# Penjelasan Isi Website SBM Monitor
+# Penjelasan Isi Website SBM Monitor (Sinkron dengan Implementasi)
 
-## 1. Gambaran Umum Website
+Dokumen ini menjelaskan isi website sesuai kondisi aplikasi saat ini, sekaligus memberi panduan deploy frontend dan backend.
 
-Website ini adalah dashboard monitoring real-time untuk sistem embedded STM32F401CCUx. Data dari mikrokontroler dibaca lewat backend (FastAPI + pyOCD + ST-Link), lalu dikirim ke frontend React melalui WebSocket.
+## 1. Ringkasan Website
 
-Tujuan utama website:
+SBM Monitor adalah website monitoring real-time untuk STM32F401CCUx.
 
-- Menampilkan status sistem STM32 secara live.
-- Menampilkan nilai ADC, mode kerja, status LED, dan statistik sinyal.
-- Menyediakan halaman dokumentasi laporan teknis dalam satu aplikasi.
+Arsitektur data:
+
+1. STM32 dibaca oleh backend Python (FastAPI + pyOCD) melalui ST-Link.
+2. Backend mengirim telemetri ke frontend lewat WebSocket.
+3. Frontend React menampilkan data dalam bentuk panel numerik, status, gauge, dan grafik.
+
+Fungsi inti website:
+
+- Monitoring nilai ADC dan sinyal secara live.
+- Monitoring mode firmware, status LED, dan EXTI event.
+- Menyediakan halaman dokumentasi laporan teknis di aplikasi yang sama.
 
 ## 2. Struktur Halaman Website
 
-Website terdiri dari 2 halaman utama:
+Website memiliki 2 tampilan utama:
 
-1. Dashboard Monitoring (halaman utama).
-2. Halaman Dokumentasi Laporan SBM.
+1. Dashboard Monitoring.
+2. Docs Page (Dokumentasi Laporan SBM).
 
-Navigasi ke halaman dokumentasi dilakukan melalui tombol "Buka Dokumentasi Laporan SBM" di bagian bawah dashboard.
+Perpindahan dari dashboard ke docs dilakukan melalui tombol Buka Dokumentasi Laporan SBM.
 
-## 3. Isi Halaman Dashboard Monitoring
+## 3. Isi Dashboard Monitoring
 
-### 3.1 Header Status Sistem
+### 3.1 Header Utama
 
-Bagian header menampilkan identitas sistem dan status koneksi, meliputi:
+Header menampilkan:
 
 - Nama aplikasi: SBM Monitor.
-- Informasi perangkat: STM32F401CCUx.
-- Status koneksi backend: CONNECTED / BACKEND OFFLINE / WAITING.
-- Informasi ringkas: MODE, VAR1, jumlah LED ON, status EXTI, uptime.
+- Identitas target: STM32F401CCUx.
+- Badge runtime: MCU, CLK, MODE, VAR1, LED ON, EXTI, UPTIME.
+- Chip status koneksi: CONNECTED, BACKEND OFFLINE, atau WAITING.
 
-### 3.2 Overlay Menunggu Koneksi ST-Link
+### 3.2 Overlay Menunggu ST-Link
 
-Jika ST-Link belum terhubung, website menampilkan overlay "Menunggu ST-Link".
-Fungsi overlay:
+Saat perangkat belum siap, muncul overlay Menunggu ST-Link.
 
-- Memberi instruksi untuk menyambungkan kabel ST-Link.
-- Menampilkan status koneksi backend (connecting/open/closed/error).
-- Mengunci interaksi sementara agar user tahu sistem belum siap.
+Peran overlay:
 
-### 3.3 Kartu Monitoring ADC
+- Memberi instruksi sambungkan USB ST-Link.
+- Menampilkan status WebSocket backend (connecting/open/closed/error).
+- Menahan interaksi dashboard sementara.
 
-Panel ADC menampilkan:
+### 3.3 Mode Hero
 
-- Nilai ADC mentah (0-4095).
-- Konversi tegangan (Volt).
+Panel ini menampilkan mode aktif dengan label berikut:
+
+- Mode 0 - Shift Left.
+- Mode 1 - Sawtooth 0..2 lalu 0..52.
+- Mode 2 - Potensio Bar Graph.
+- Mode 3 - Potensio RGB.
+
+### 3.4 Panel ADC
+
+Bagian ADC menampilkan:
+
+- Nilai ADC 12-bit (0-4095).
+- Konversi tegangan ke Volt.
 - Progress bar level ADC.
-- Statistik rolling: nilai minimum, maksimum, dan rata-rata.
+- Statistik rolling: Min, Max, Avg.
 
-### 3.4 Panel LED Sequence Activity
+Catatan implementasi:
 
-Panel ini menampilkan kondisi LED 0 sampai LED 7 secara visual.
-Informasi yang ditampilkan:
+- Pada Mode 3, tampilan gauge menggunakan nilai terbalik (4095 - adc) agar konsisten dengan logika RGB mode di firmware.
 
-- LED aktif/nonaktif dalam bentuk lamp indicator.
-- Ringkasan mode aktif (Mode 0, 1, 2, atau 3).
-- Representasi LED dalam format biner dan heksadesimal.
-- Jumlah LED yang sedang ON.
+### 3.5 LED Sequence Activity
 
-### 3.5 Panel RGB (Khusus Mode 3)
+Panel ini berisi:
 
-Pada mode 3, website menampilkan lampu RGB virtual.
-Karakteristik:
+- LED0 sampai LED7 (indikator visual realtime).
+- Ringkasan jumlah LED menyala.
+- Representasi status LED dalam BIN dan HEX.
+- Efek scan visual pada kondisi tertentu.
 
-- Warna berubah berdasarkan rentang nilai ADC.
-- Menampilkan nama warna hasil mapping (misal: RED, GREEN, BLUE, dst).
-- Menampilkan status ACTIVE/STANDBY.
+### 3.6 Panel RGB (Khusus Mode 3)
 
-### 3.6 Grafik Tren Real-time
+Saat mode 3 aktif, muncul lampu RGB virtual beserta nama warna hasil mapping nilai ADC.
 
-Ada 3 grafik tren utama:
+Rentang warna yang digunakan:
+
+- WHITE, MAGENTA, CYAN, YELLOW, BLUE, GREEN, RED.
+
+### 3.7 Grafik Tren Realtime
+
+Tiga grafik yang ditampilkan:
 
 1. CubeMonitor Signal Trend.
 2. VAR1 / Count Trend.
 3. LED ON Count Trend.
 
-Semua grafik menampilkan perubahan data terhadap waktu relatif (detik) untuk memudahkan analisis dinamika sistem.
+Sumbu X memakai Relative Time (s).
 
-### 3.7 Realtime Gauge Panel
+### 3.8 Realtime Gauge Panel
 
-Website menampilkan 3 gauge melingkar:
+Terdapat 3 ring gauge:
 
-- ADC Raw Gauge.
-- Voltage Gauge.
-- Signal Activity Gauge.
+- ADC Raw.
+- Voltage.
+- Signal Activity.
 
-Gauge membantu pembacaan cepat kondisi sinyal secara visual.
+Gauge menampilkan ringkas kondisi sinyal secara visual dan cepat.
 
-### 3.8 Informasi Sistem (Bottom Row)
+### 3.9 Bottom Information Panels
 
-Bagian bawah dashboard berisi informasi statis teknis:
+Terdiri dari tiga panel informasi:
 
-- System Info (MCU family, flash, RAM, firmware, toolchain, compiler).
-- Pin Configuration (fungsi pin utama seperti PA0, PA8, NRST, VDD, VSS).
-- NVIC Interrupt Config (daftar interrupt dan prioritas).
+- System Info: family, package, flash, RAM, firmware, toolchain, compiler.
+- Pin Configuration: pemetaan pin penting (PA0, PA8, NRST, VDD, VSS).
+- NVIC Interrupt Config: daftar IRQ, prioritas, dan priority group.
 
-### 3.9 Notifikasi EXTI
+### 3.10 Notifikasi EXTI
 
-Saat EXTI aktif, muncul banner notifikasi bahwa semua LED ON selama periode tertentu, lalu kembali ke kondisi semula.
+Jika exti_flag aktif, dashboard menampilkan banner peringatan bahwa seluruh LED ON sementara sebelum kembali ke state normal.
 
-## 4. Isi Halaman Dokumentasi Laporan SBM
+## 4. Isi Docs Page (Dokumentasi Laporan)
 
-Halaman dokumentasi memuat konten laporan teknis terstruktur dalam beberapa bab:
+Docs page berisi section laporan:
 
 1. Pendahuluan.
 2. Landasan Teori.
@@ -114,45 +134,180 @@ Halaman dokumentasi memuat konten laporan teknis terstruktur dalam beberapa bab:
 9. Kesimpulan.
 10. Referensi.
 
-Komponen presentasi pada halaman dokumentasi:
+Komponen pendukung pada docs page:
 
-- Judul section dan sub-section.
-- Tabel data teknis.
-- Blok kode (code block) dengan tombol copy.
-- Info box (info/warn/note) untuk catatan penting.
+- Section title terstruktur.
+- Tabel parameter.
+- Code block dengan tombol copy.
+- Info box bertipe info/warn/note.
 
-## 5. Alur Data Website
+## 5. Alur Koneksi Data (Sinkron Implementasi)
 
-Alur kerja data pada website:
+Frontend membaca daftar URL WebSocket berurutan:
 
-1. Backend membaca nilai memori/variabel STM32 via pyOCD + ST-Link.
-2. Backend mengirim data secara periodik melalui WebSocket.
-3. Frontend menerima payload, melakukan normalisasi data, lalu update state.
-4. Komponen dashboard (angka, indikator, gauge, grafik) diperbarui real-time.
-5. Jika koneksi putus, frontend melakukan auto-reconnect.
+1. VITE_WS_URL (jika diset).
+2. VITE_WS_DIRECT_URL (default ws://localhost:8765/ws).
+3. VITE_WS_NODERED_URL (opsional, jika fallback diaktifkan).
+
+Mekanisme runtime:
+
+- Frontend mencoba URL pertama, lalu fallback ke URL berikutnya jika gagal.
+- Auto-reconnect berjalan periodik saat koneksi putus.
+- Payload dari backend direct dan payload Node-RED diformat ulang agar state dashboard tetap konsisten.
+- Jika field signal tidak tersedia, frontend memakai fallback dari adc_value dan data LED state sesuai logika aplikasi.
 
 ## 6. Teknologi yang Digunakan
 
 - Frontend: React + Vite.
-- Backend: FastAPI (Python) + pyOCD.
-- Komunikasi real-time: WebSocket.
-- Integrasi perangkat: ST-Link ke STM32F401CCUx.
+- Backend: FastAPI + pyOCD (Python).
+- Real-time transport: WebSocket.
+- Hardware interface: ST-Link ke STM32F401CCUx.
 
-## 7. Poin Nilai Tambah untuk Laporan
+## 7. Guide Deploy dan Menjalankan Sistem
 
-Hal-hal yang bisa ditekankan dalam laporan:
+### 7.1 Prasyarat
 
-- Integrasi web app dengan perangkat embedded secara real-time.
-- Visualisasi data multi-panel (angka, status, gauge, trend chart).
-- Penanganan kondisi offline dan recovery koneksi otomatis.
-- Penyatuan dashboard monitoring dan halaman dokumentasi dalam satu website.
+- Node.js dan npm terpasang.
+- Python 3 terpasang.
+- ST-Link driver terpasang di mesin backend.
+- Perangkat STM32 + ST-Link tersedia (untuk data live).
 
-## 8. Ringkasan Singkat
+### 7.2 Setup Frontend (sekali)
 
-Secara isi, website SBM Monitor bukan hanya tampilan data ADC, tetapi platform monitoring terintegrasi yang memuat:
+Jalankan di root project:
 
-- Status koneksi hardware,
-- Telemetri sistem real-time,
-- Visualisasi mode dan LED,
-- Statistik dan grafik historis,
-- Serta dokumentasi laporan teknis yang siap presentasi.
+```bash
+npm install
+```
+
+### 7.3 Setup Backend (sekali)
+
+Masuk ke folder backend lalu install dependency:
+
+```bash
+cd src/backend
+python -m venv .venv
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -r requirements.txt
+```
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+### 7.4 Menjalankan Backend
+
+Windows PowerShell:
+
+```powershell
+cd src/backend
+.\.venv\Scripts\Activate.ps1
+python server.py
+```
+
+Linux/macOS:
+
+```bash
+bash src/start_backend.sh
+```
+
+Backend default melayani:
+
+- WebSocket di ws://localhost:8765/ws.
+- Endpoint write di http://localhost:8765/write.
+
+### 7.5 Menjalankan Frontend
+
+Di root project:
+
+```bash
+npm run dev
+```
+
+Lalu buka:
+
+- http://localhost:5173
+
+### 7.6 Konfigurasi Environment Frontend
+
+Buat file .env bila perlu, lalu isi variabel berikut:
+
+```env
+VITE_WS_URL=
+VITE_WS_DIRECT_URL=ws://localhost:8765/ws
+VITE_ENABLE_NODERED_FALLBACK=false
+VITE_WS_NODERED_URL=ws://localhost:1880/ws/stm32
+```
+
+Catatan:
+
+- Jika memakai backend direct pyOCD, cukup gunakan VITE_WS_DIRECT_URL.
+- Aktifkan VITE_ENABLE_NODERED_FALLBACK=true hanya bila memang memakai jalur Node-RED.
+
+### 7.7 Deploy Frontend ke Vercel
+
+Frontend bisa dideploy sebagai static site.
+
+Build command:
+
+```bash
+npm run build
+```
+
+Konfigurasi umum Vercel:
+
+- Framework preset: Vite.
+- Build command: npm run build.
+- Output directory: dist.
+
+Penting:
+
+- Set environment variable VITE_WS_URL ke alamat backend publik (ws/wss) agar frontend production terhubung.
+
+### 7.8 Deploy Backend (Bukan di Vercel)
+
+Backend pyOCD tidak cocok dijalankan di Vercel karena membutuhkan akses USB fisik ke ST-Link.
+
+Rekomendasi deploy backend:
+
+1. Jalankan backend di PC lokal/lab mini PC/server fisik yang terhubung ST-Link.
+2. Jalankan sebagai service (misalnya systemd pada Linux) agar auto-start saat boot.
+3. Gunakan reverse proxy (nginx/traefik/caddy) untuk endpoint WebSocket secure (wss) jika diakses publik.
+
+### 7.9 Troubleshooting Cepat
+
+Jika backend gagal membaca probe atau error kompatibilitas pyOCD, gunakan versi stabil yang dipakai project:
+
+```bash
+pip install "pyocd==0.35.0"
+```
+
+Jika mode/ADC/LED tidak sinkron setelah update firmware, sesuaikan alamat variabel RAM pada environment backend sebelum menjalankan server.py.
+
+## 8. Poin Presentasi untuk Laporan
+
+Hal yang bisa ditekankan saat presentasi:
+
+- Integrasi embedded dan web monitoring realtime end-to-end.
+- Dashboard visual lengkap: numerik, status, trend, dan gauge.
+- Mekanisme fallback payload serta reconnect otomatis.
+- Pemisahan deploy frontend cloud dan backend hardware-aware.
+
+## 9. Ringkasan
+
+Isi website saat ini sudah mencakup dua kebutuhan utama:
+
+1. Monitoring teknis realtime STM32 berbasis WebSocket.
+2. Dokumentasi laporan teknis terstruktur di dalam aplikasi.
+
+Dengan panduan deploy di atas, sistem dapat dijalankan lokal untuk pengujian maupun dipublikasikan (frontend) untuk demo/presentasi.

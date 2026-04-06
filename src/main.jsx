@@ -478,7 +478,7 @@ function WaitingOverlay({ error, wsState }) {
 const DEFAULT_HIST = () =>
   Array.from({ length: HIST_LEN }, (_, i) => ({ t: i, v: 0 }));
 
-function Dashboard({ onGoToDocs }) {
+function Dashboard({ onGoToDocs, canAccessDocs = true }) {
   /* ── State (semua diisi dari WebSocket) ── */
   const [connected, setConnected] = useState(false);
   const [wsState, setWsState] = useState("connecting"); // connecting | open | closed | error
@@ -898,6 +898,10 @@ function Dashboard({ onGoToDocs }) {
     : wsState === "closed" || wsState === "error"
       ? "BACKEND OFFLINE"
       : "WAITING…";
+
+  const docsBtnLabel = canAccessDocs
+    ? "Buka Dokumentasi Laporan SBM"
+    : "Dokumentasi terkunci (backend/ST-Link offline)";
 
   return (
     <>
@@ -1325,7 +1329,14 @@ function Dashboard({ onGoToDocs }) {
 
         {/* Docs Button */}
         <div className="docs-btn-wrap">
-          <button className="fab-goto-docs" onClick={onGoToDocs}>
+          <button
+            className="fab-goto-docs"
+            onClick={onGoToDocs}
+            disabled={!canAccessDocs}
+            style={
+              !canAccessDocs ? { opacity: 0.55, cursor: "not-allowed" } : {}
+            }
+          >
             <svg
               width="16"
               height="16"
@@ -1336,7 +1347,7 @@ function Dashboard({ onGoToDocs }) {
             >
               <path d="M9 12h6M9 16h6M9 8h4M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
             </svg>
-            <span>Buka Dokumentasi Laporan SBM</span>
+            <span>{docsBtnLabel}</span>
             <svg
               width="14"
               height="14"
@@ -1654,29 +1665,29 @@ function DocsPage({ onBack }) {
         <div className="docs-main">
           <div className="docs-hero">
             <div className="docs-hero-tag">
-              Laporan Proyek · Sistem Berbasis Mikrokontroler
+              Laporan Implementasi · Monitoring STM32 Realtime
             </div>
             <h1 className="docs-hero-title">
-              ADC-to-PWM Controller
+              SBM Monitor
               <br />
-              STM32F401CCUx
+              STM32F401CCUx Dashboard
             </h1>
             <div className="prose">
               <p>
-                Implementasi sistem pembacaan ADC continuous dan output PWM
-                menggunakan STM32F401CCUx dengan HAL Library. Konfigurasi
-                dilakukan melalui STM32CubeMX dan dikembangkan menggunakan
-                STM32CubeIDE.
+                Website ini digunakan untuk memonitor telemetri STM32F401CCUx
+                secara realtime melalui backend FastAPI + pyOCD dan koneksi
+                ST-Link. Data ditampilkan dalam panel status, gauge, trend, dan
+                ringkasan sistem untuk kebutuhan analisis dan presentasi.
               </p>
             </div>
             <div className="docs-hero-meta">
               {[
                 ["MCU", "STM32F401CCUx"],
-                ["Clock", "16 MHz HSI"],
-                ["ADC", "12-bit Channel 0"],
-                ["PWM", "TIM1 CH1 · PA8"],
-                ["IDE", "STM32CubeIDE"],
-                ["Library", "HAL FW_F4 V1.28.3"],
+                ["Frontend", "React + Vite"],
+                ["Backend", "FastAPI + pyOCD"],
+                ["Transport", "WebSocket"],
+                ["Probe", "ST-Link"],
+                ["Mode", "0..3"],
               ].map(([k, v]) => (
                 <div key={k} className="badge">
                   {k} <span>{v}</span>
@@ -1690,17 +1701,15 @@ function DocsPage({ onBack }) {
           </SectionTitle>
           <div className="prose">
             <p>
-              Proyek ini dikembangkan sebagai implementasi sistem kontrol
-              berbasis mikrokontroler STM32F401CCUx yang membaca sinyal analog
-              melalui ADC dan menghasilkan sinyal PWM yang dapat dikonfigurasi.
-              Sistem ini mendemonstrasikan penggunaan peripheral ADC1 dan TIM1
-              secara bersamaan dalam satu aplikasi embedded.
+              Sistem SBM Monitor menghubungkan perangkat embedded STM32 dengan
+              antarmuka web untuk observasi data realtime. Tujuan utamanya
+              adalah memberikan visibilitas kondisi firmware, ADC, LED,
+              interrupt, dan status koneksi hardware secara langsung dari
+              browser.
             </p>
             <p>
-              Tujuan utama proyek adalah memahami alur kerja pengembangan
-              firmware embedded menggunakan STM32CubeMX untuk konfigurasi
-              peripheral dan STM32CubeIDE sebagai lingkungan pengembangan
-              terintegrasi.
+              Website juga menyatukan konten laporan teknis agar proses demo,
+              pengujian, dan dokumentasi berada pada satu aplikasi yang sama.
             </p>
           </div>
           <hr className="section-divider" />
@@ -1710,21 +1719,19 @@ function DocsPage({ onBack }) {
           </SectionTitle>
           <div className="prose">
             <p>
-              <strong>ADC (Analog-to-Digital Converter)</strong> mengubah sinyal
-              analog menjadi nilai digital. STM32F401 memiliki ADC 12-bit dengan
-              resolusi 4096 level (0–4095). Pada mode continuous, konversi
-              dilakukan terus menerus tanpa intervensi software.
+              <strong>WebSocket Telemetry</strong> digunakan untuk menyalurkan
+              data dari backend ke frontend tanpa polling, sehingga panel dapat
+              diperbarui realtime dengan latensi rendah.
             </p>
             <p>
-              <strong>PWM (Pulse Width Modulation)</strong> adalah teknik
-              modulasi lebar pulsa yang digunakan untuk mengatur daya rata-rata
-              yang dikirim ke beban. Duty cycle (rasio waktu HIGH terhadap
-              periode) menentukan nilai rata-rata sinyal.
+              <strong>ADC 12-bit</strong> pada STM32 menghasilkan rentang nilai
+              0-4095. Nilai ini ditampilkan sebagai raw value, tegangan, tren,
+              dan indikator aktivitas sinyal.
             </p>
             <p>
-              <strong>Timer (TIM1)</strong> adalah peripheral advanced-control
-              timer pada STM32F401 yang mendukung 4 kanal PWM dengan fitur
-              dead-time insertion dan complementary output.
+              <strong>State Monitoring</strong> menampilkan mode firmware,
+              status LED, dan event EXTI sehingga perubahan perilaku firmware
+              dapat dianalisis dari dashboard.
             </p>
           </div>
           <hr className="section-divider" />
@@ -1735,15 +1742,15 @@ function DocsPage({ onBack }) {
           <div className="spec-grid">
             {[
               ["Mikrokontroler", "STM32F401CCUx"],
-              ["Core", "ARM Cortex-M4 @ 16 MHz"],
-              ["Flash Memory", "256 KB"],
-              ["RAM", "64 KB SRAM"],
+              ["Core", "ARM Cortex-M4"],
               ["Package", "UFQFPN48"],
-              ["ADC Resolution", "12-bit (0–4095)"],
-              ["ADC Input", "PA0 (Channel 0)"],
-              ["PWM Output", "PA8 (TIM1 CH1)"],
+              ["Flash", "256 KB"],
+              ["RAM", "64 KB"],
+              ["ADC Input", "PA0 / ADC1 CH0"],
               ["Supply Voltage", "3.3V"],
-              ["Debug Interface", "SWD (ST-Link)"],
+              ["Debug Interface", "SWD via ST-Link"],
+              ["Host Backend", "PC/server with Python"],
+              ["Opsional Legacy", "Node-RED stream"],
             ].map(([k, v]) => (
               <div key={k} className="spec-card">
                 <div className="spec-k">{k}</div>
@@ -1758,15 +1765,14 @@ function DocsPage({ onBack }) {
           </SectionTitle>
           <div className="prose">
             <p>
-              Sistem dirancang dengan arsitektur sederhana: sinyal analog pada
-              PA0 dibaca oleh ADC1 secara continuous, kemudian nilai ADC
-              dikonversi secara proporsional menjadi duty cycle untuk sinyal PWM
-              pada PA8.
+              Arsitektur sistem terdiri dari firmware STM32, backend bridge, dan
+              frontend dashboard. Backend membaca variabel dari target, lalu
+              mengirim payload telemetry ke browser menggunakan WebSocket.
             </p>
             <p>
-              Nilai ADC 0 menghasilkan duty cycle 0% (output LOW konstan),
-              sedangkan ADC 4095 menghasilkan duty cycle mendekati 100% (output
-              HIGH konstan). Pemetaan ini dilakukan melalui perhitungan linear.
+              Frontend menormalisasi payload dari mode direct backend maupun
+              payload konsolidasi Node-RED sehingga tampilan mode, ADC, dan LED
+              tetap konsisten.
             </p>
           </div>
           <hr className="section-divider" />
@@ -1775,18 +1781,33 @@ function DocsPage({ onBack }) {
             Konfigurasi Peripheral
           </SectionTitle>
           <Table
-            headers={["Peripheral", "Parameter", "Nilai", "Keterangan"]}
+            headers={["Komponen", "Parameter", "Nilai", "Keterangan"]}
             rows={[
-              ["ADC1", "Resolution", "12-bit", "4096 level konversi"],
-              ["ADC1", "Mode", "Continuous", "Konversi terus-menerus"],
-              ["ADC1", "Channel", "0 (PA0)", "Input analog"],
-              ["ADC1", "Sampling Time", "3 cycles", "Waktu sampling minimum"],
-              ["TIM1", "Prescaler (PSC)", "15999", "Clock divider"],
-              ["TIM1", "Period (ARR)", "499", "Auto-reload value"],
-              ["TIM1", "Pulse (CCR1)", "250", "Default 50% duty"],
-              ["TIM1", "Frequency", "2 Hz", "16M/(16000×500)"],
-              ["NVIC", "Priority Group", "4", "Pre-emption only"],
-              ["NVIC", "TIM1 Priority", "0", "Highest priority"],
+              [
+                "Backend",
+                "WebSocket",
+                "ws://localhost:8765/ws",
+                "Default direct stream",
+              ],
+              [
+                "Backend",
+                "Write API",
+                "http://localhost:8765/write",
+                "Kontrol/aksi backend",
+              ],
+              [
+                "Frontend",
+                "Fallback URL",
+                "ws://localhost:1880/ws/stm32",
+                "Opsional Node-RED",
+              ],
+              ["Frontend", "Reconnect", "2 detik", "Auto reconnect saat putus"],
+              ["Firmware", "Mode", "0-3", "Shift/Sawtooth/Bar/RGB"],
+              ["Telemetry", "ADC", "0-4095", "Raw 12-bit"],
+              ["Telemetry", "LED", "8 channel", "Bitfield + array"],
+              ["Telemetry", "EXTI", "0/1", "State interrupt"],
+              ["UI", "Trend", "Signal/VAR1/LED", "Rolling history"],
+              ["UI", "Gauge", "ADC/Volt/Signal", "Visual realtime"],
             ]}
           />
           <hr className="section-divider" />
@@ -1796,73 +1817,22 @@ function DocsPage({ onBack }) {
           </SectionTitle>
           <div className="prose">
             <p>
-              Firmware dikembangkan menggunakan HAL Library STM32F4 versi
-              1.28.3. Loop utama membaca nilai ADC secara continuous dan
-              memetakannya ke duty cycle PWM.
+              Firmware mengelola mode operasi, pembacaan ADC, status LED, dan
+              event EXTI. Backend membaca variabel-variabel ini lalu meneruskan
+              ke frontend.
             </p>
           </div>
+          <CodeBlock lang="text">{`Data utama yang dipakai dashboard:
+- mode
+- var1
+- adc / adc_value / signal
+- led_status atau leds[8]
+- exti_flag
+- uptime`}</CodeBlock>
 
-          <CodeBlock lang="c">{`/* main.c — Loop utama ADC-to-PWM */
-int main(void)
-{
-  HAL_Init();
-  SystemClock_Config();
-  MX_GPIO_Init();
-  MX_ADC1_Init();
-  MX_TIM1_Init();
-
-  HAL_ADC_Start(&hadc1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-
-  while (1)
-  {
-    /* Baca nilai ADC */
-    uint32_t adc_val = HAL_ADC_GetValue(&hadc1);
-
-    /* Konversi ke duty cycle (opsional — pengembangan) */
-    uint32_t duty = (adc_val * (htim1.Init.Period + 1)) / 4095;
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, duty);
-
-    HAL_Delay(10);  /* Sampling interval */
-  }
-}`}</CodeBlock>
-
-          <CodeBlock lang="c">{`/* Konfigurasi ADC1 — MX_ADC1_Init() */
-void MX_ADC1_Init(void)
-{
-  hadc1.Instance                   = ADC1;
-  hadc1.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV2;
-  hadc1.Init.Resolution            = ADC_RESOLUTION_12B;
-  hadc1.Init.ContinuousConvMode    = ENABLE;   /* Continuous */
-  hadc1.Init.NbrOfConversion       = 1;
-  HAL_ADC_Init(&hadc1);
-
-  /* Channel 0 → PA0 */
-  sConfig.Channel      = ADC_CHANNEL_0;
-  sConfig.Rank         = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-  HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-}`}</CodeBlock>
-
-          <CodeBlock lang="c">{`/* Konfigurasi TIM1 PWM — MX_TIM1_Init() */
-void MX_TIM1_Init(void)
-{
-  htim1.Instance           = TIM1;
-  htim1.Init.Prescaler     = 15999;  /* 16MHz / 16000 = 1kHz  */
-  htim1.Init.Period        = 499;    /* 1kHz  / 500   = 2Hz   */
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  HAL_TIM_PWM_Init(&htim1);
-
-  sConfigOC.OCMode     = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse      = 250;        /* Duty = 250/500 = 50%  */
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1);
-}`}</CodeBlock>
-
-          <InfoBox type="warn">
-            Frekuensi PWM 2 Hz pada konfigurasi saat ini terlalu lambat untuk
-            aplikasi motor atau servo (umumnya 50–20.000 Hz). Nilai Period dan
-            Prescaler perlu disesuaikan sesuai beban yang digunakan.
+          <InfoBox type="note">
+            Sinkronisasi payload dilakukan di frontend agar sumber data direct
+            backend dan Node-RED tetap menghasilkan state UI yang sama.
           </InfoBox>
           <hr className="section-divider" />
 
@@ -1871,18 +1841,19 @@ void MX_TIM1_Init(void)
           </SectionTitle>
           <div className="prose">
             <p>
-              Pengujian dilakukan secara fungsional untuk memverifikasi output
-              ADC dan sinyal PWM sesuai spesifikasi desain.
+              Pengujian dilakukan untuk memastikan integrasi hardware-software:
+              backend aktif, ST-Link terdeteksi, payload masuk, dan UI
+              menampilkan data sesuai state terbaru.
             </p>
           </div>
           <div className="result-grid">
             {[
-              ["ADC Resolution", "12", "bit", "Resolusi penuh 4096 level"],
-              ["ADC Range", "0 – 4095", "counts", "Sesuai 0 – 3.3V input"],
-              ["PWM Frequency", "2.00", "Hz", "Terukur sesuai kalkulasi"],
-              ["Duty Cycle", "50.0", "%", "Default pulse = 250/500"],
-              ["Timer Clock", "1.000", "kHz", "16MHz / (PSC+1)"],
-              ["SYSCLK", "16.000", "MHz", "HSI internal oscillator"],
+              ["WebSocket", "Open", "state", "Koneksi backend berhasil"],
+              ["ST-Link", "Detected", "state", "Target siap dibaca"],
+              ["ADC", "0..4095", "raw", "Update realtime"],
+              ["LED", "0..8", "count", "Status panel sinkron"],
+              ["Mode", "0..3", "state", "Label mode konsisten"],
+              ["Recovery", "Auto", "reconnect", "Pulih saat koneksi kembali"],
             ].map(([k, v, u, d]) => (
               <div key={k} className="result-card">
                 <div className="result-label">{k}</div>
@@ -1897,12 +1868,12 @@ void MX_TIM1_Init(void)
           <Table
             headers={["Parameter Uji", "Ekspektasi", "Hasil", "Status"]}
             rows={[
-              ["ADC membaca 0V", "≈ 0", "0 – 50", "✓ Pass"],
-              ["ADC membaca 3.3V", "≈ 4095", "4050 – 4095", "✓ Pass"],
-              ["Frekuensi PWM", "2.00 Hz", "2.00 Hz", "✓ Pass"],
-              ["Duty cycle default", "50%", "50.0%", "✓ Pass"],
-              ["TIM1 interrupt", "Aktif", "Terpanggil", "✓ Pass"],
-              ["HAL_Tick (SysTick)", "1 ms", "~1 ms", "✓ Pass"],
+              ["Backend hidup", "UI online", "Tercapai", "✓ Pass"],
+              ["ST-Link dilepas", "UI terkunci", "Tercapai", "✓ Pass"],
+              ["Masuk docs saat offline", "Ditolak", "Tercapai", "✓ Pass"],
+              ["Rekoneksi backend", "Pulih otomatis", "Tercapai", "✓ Pass"],
+              ["Mode berubah", "UI ikut berubah", "Tercapai", "✓ Pass"],
+              ["LED/ADC update", "Grafik bergerak", "Tercapai", "✓ Pass"],
             ]}
           />
           <hr className="section-divider" />
@@ -1912,44 +1883,34 @@ void MX_TIM1_Init(void)
           </SectionTitle>
           <div className="prose">
             <p>
-              Sistem berhasil membaca nilai ADC secara continuous dan
-              menghasilkan sinyal PWM dengan duty cycle yang dapat
-              dikonfigurasi. Beberapa catatan penting dari hasil analisis:
+              Dashboard berhasil memberikan observabilitas yang cukup untuk
+              analisis perilaku firmware realtime. Kombinasi panel numerik,
+              gauge, dan trend membantu diagnosis lebih cepat dibanding output
+              serial text saja.
             </p>
             <p>
-              <strong>Akurasi ADC:</strong> Dengan resolusi 12-bit dan VREF =
-              3.3V, setiap LSB mewakili tegangan{" "}
-              <code>3.3 / 4096 ≈ 0.806 mV</code>. Noise pada pengukuran dapat
-              diminimalisir dengan rata-rata beberapa sampel (oversampling).
+              Penguncian akses saat backend/ST-Link offline mencegah user
+              mengakses halaman docs dalam kondisi sistem belum siap, sehingga
+              alur demo dan validasi menjadi lebih konsisten.
             </p>
             <p>
-              <strong>Frekuensi PWM:</strong> Nilai 2 Hz dipilih untuk kemudahan
-              verifikasi visual (LED akan berkedip terlihat mata). Untuk
-              aplikasi real seperti servo, gunakan Period = 19999 dengan PSC =
-              15 untuk menghasilkan 50 Hz.
-            </p>
-            <p>
-              <strong>Penggunaan HAL:</strong> HAL Library menyederhanakan
-              inisialisasi hardware namun menambah overhead dibandingkan akses
-              register langsung (LL Library). Untuk aplikasi time-critical,
-              pertimbangkan LL atau akses register langsung.
+              Mekanisme fallback URL dan auto-reconnect meningkatkan ketahanan
+              sistem ketika backend restart atau jalur websocket berganti.
             </p>
           </div>
           <div className="two-col">
             <div className="info-card">
               <div className="info-card-title">Kelebihan Implementasi</div>
               <p>
-                Kode bersih dan mudah dibaca. Penggunaan HAL mempercepat
-                development. Konfigurasi CubeMX meminimalisir kesalahan
-                inisialisasi peripheral.
+                Integrasi end-to-end embedded ke web, visualisasi data lengkap,
+                serta UX monitoring yang tetap jelas saat perangkat offline.
               </p>
             </div>
             <div className="info-card">
               <div className="info-card-title">Area Pengembangan</div>
               <p>
-                Penambahan UART untuk debug output. Mapping ADC ke duty cycle
-                secara proporsional. DMA untuk ADC agar tidak blocking.
-                Kalibrasi ADC internal.
+                Tambah autentikasi akses dashboard, logging historis ke DB, dan
+                alarm rule-based untuk kondisi threshold ADC/EXTI.
               </p>
             </div>
           </div>
@@ -1960,25 +1921,19 @@ void MX_TIM1_Init(void)
           </SectionTitle>
           <div className="prose">
             <p>
-              Proyek <strong>sbmproject</strong> berhasil mendemonstrasikan
-              implementasi sistem ADC-to-PWM berbasis STM32F401CCUx. Seluruh
-              peripheral yang dikonfigurasi — ADC1, TIM1, NVIC, dan RCC —
-              berfungsi sesuai dengan spesifikasi yang ditetapkan dalam file
-              konfigurasi CubeMX.
+              SBM Monitor berhasil mengintegrasikan backend hardware-aware dan
+              frontend realtime untuk kebutuhan monitoring STM32F401CCUx.
             </p>
             <p>
-              Sistem ini menjadi fondasi yang solid untuk pengembangan lebih
-              lanjut seperti kontrol motor servo, sistem otomasi berbasis
-              sensor, atau aplikasi IoT embedded. Dengan menambahkan pemetaan
-              ADC ke duty cycle secara dinamis, sistem dapat berfungsi sebagai
-              kontroler analog-digital yang responsif.
+              Sistem saat ini sudah siap untuk demonstrasi/presentasi karena
+              menyediakan telemetry live, dokumentasi terintegrasi, dan guard
+              akses ketika backend atau ST-Link tidak aktif.
             </p>
           </div>
           <InfoBox type="info">
-            Proyek ini tersedia secara publik di{" "}
-            <strong>github.com/dnday/sbmproject</strong> dan dapat dikembangkan
-            lebih lanjut dengan menambahkan peripheral komunikasi (UART, I2C,
-            SPI) atau konektivitas wireless.
+            Panduan deploy: frontend dapat dipublish sebagai static site
+            (misalnya Vercel), sedangkan backend harus berjalan pada mesin yang
+            punya akses USB ST-Link.
           </InfoBox>
           <hr className="section-divider" />
 
@@ -1987,23 +1942,15 @@ void MX_TIM1_Init(void)
           </SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {[
+              ["README", "README project SBM Monitor (setup dan run)"],
+              ["FastAPI", "Dokumentasi FastAPI untuk backend service"],
+              ["pyOCD", "Dokumentasi pyOCD untuk debug probe STM32"],
+              ["React", "Dokumentasi React untuk UI state management"],
+              ["Vite", "Dokumentasi Vite untuk build/deploy frontend"],
+              ["ST-Link", "Dokumentasi probe ST-Link dan SWD"],
               [
-                "RM0368",
-                "STM32F401xB/C/D/E Reference Manual — STMicroelectronics, 2023",
-              ],
-              ["DS9716", "STM32F401xC/xE Datasheet — STMicroelectronics, 2023"],
-              ["UM1724", "STM32 Nucleo-64 boards user manual"],
-              [
-                "AN4776",
-                "General-purpose timer cookbook for STM32 microcontrollers",
-              ],
-              [
-                "HAL",
-                "Description of STM32F4 HAL and low-layer drivers — UM1725",
-              ],
-              [
-                "CubeMX",
-                "STM32CubeMX for STM32 configuration and initialization — UM1718",
+                "STM32",
+                "Reference manual dan datasheet STM32F401 untuk detail peripheral",
               ],
             ].map(([id, text]) => (
               <div
@@ -2065,14 +2012,74 @@ void MX_TIM1_Init(void)
 ══════════════════════════════════════════════════════════════ */
 export default function App() {
   const [page, setPage] = useState("dashboard");
+  const [accessGranted, setAccessGranted] = useState(false);
+  const guardWsRef = useRef(null);
+  const guardReconnectRef = useRef(null);
+  const guardWsUrlIndexRef = useRef(0);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const connectGuard = () => {
+      if (disposed) return;
+      const targetUrl = WS_URLS[guardWsUrlIndexRef.current % WS_URLS.length];
+      const ws = new WebSocket(targetUrl);
+      guardWsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          const nodeRedMsg = extractNodeRedMessage(d);
+          if (nodeRedMsg) {
+            setAccessGranted(true);
+            return;
+          }
+          if (typeof d?.connected === "boolean") {
+            setAccessGranted(d.connected);
+          }
+        } catch (_) {}
+      };
+
+      ws.onerror = () => {
+        setAccessGranted(false);
+      };
+
+      ws.onclose = () => {
+        setAccessGranted(false);
+        guardWsUrlIndexRef.current =
+          (guardWsUrlIndexRef.current + 1) % WS_URLS.length;
+        guardReconnectRef.current = setTimeout(connectGuard, 2000);
+      };
+    };
+
+    connectGuard();
+    return () => {
+      disposed = true;
+      clearTimeout(guardReconnectRef.current);
+      guardWsRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (page === "docs" && !accessGranted) {
+      setPage("dashboard");
+    }
+  }, [accessGranted, page]);
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [page]);
+
+  const openDocs = () => {
+    if (!accessGranted) return;
+    setPage("docs");
+  };
+
   return (
     <>
       <style>{GLOBAL_CSS}</style>
       {page === "dashboard" ? (
-        <Dashboard onGoToDocs={() => setPage("docs")} />
+        <Dashboard onGoToDocs={openDocs} canAccessDocs={accessGranted} />
       ) : (
         <DocsPage onBack={() => setPage("dashboard")} />
       )}
